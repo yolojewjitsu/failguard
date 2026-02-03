@@ -170,6 +170,21 @@ class TestMonitor:
         assert status.has_cycle
         assert status.cycle_pattern == ["step_a", "step_b"]
 
+    def test_detect_cycles_disabled(self):
+        """Test that detect_cycles=False disables cycle detection."""
+        monitor = Monitor(detect_cycles=False, max_identical_outputs=100)
+
+        # Build up a pattern that would trigger cycle detection
+        monitor.check("A", step_name="step_a")
+        monitor.check("B", step_name="step_b")
+        monitor.check("A", step_name="step_a")
+        status = monitor.check("B", step_name="step_b")
+
+        # Cycle detection disabled, so no failure
+        assert not status.has_cycle
+        assert not status.has_failure
+        assert status.cycle_pattern == []
+
     def test_reset(self):
         """Test Monitor reset."""
         monitor = Monitor(max_identical_outputs=2)
