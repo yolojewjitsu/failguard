@@ -1,7 +1,5 @@
 """Tests for failguard."""
 
-import time
-
 import pytest
 
 from failguard import failguard, Monitor, FailGuardError, FailureStatus, FailureType
@@ -53,10 +51,10 @@ class TestFailguardDecorator:
         cycling_func()  # A
         cycling_func()  # B
         cycling_func()  # A
-        cycling_func()  # B - cycle detected here (A->B repeated)
 
+        # Fourth call completes the A->B->A->B pattern, cycle detected
         with pytest.raises(FailGuardError) as exc:
-            cycling_func()
+            cycling_func()  # B - cycle detected here (A->B repeated twice)
 
         assert exc.value.failure_type == FailureType.CYCLE
 
@@ -235,10 +233,13 @@ class TestCycleDetection:
         """Test detection of longer cycles (A->B->C->A->B->C)."""
         monitor = Monitor(detect_cycles=True, cycle_min_length=2, cycle_max_length=5)
 
-        steps = ["A", "B", "C", "A", "B", "C", "A"]
+        # Need exactly 6 elements to detect A->B->C repeated twice
+        steps = ["A", "B", "C", "A", "B", "C"]
         for step in steps[:-1]:
             status = monitor.check(step, step_name=step)
+            assert not status.has_cycle  # Not yet complete
 
+        # Sixth element completes the cycle
         status = monitor.check("C", step_name="C")
         assert status.has_cycle
         assert len(status.cycle_pattern) == 3
@@ -275,3 +276,50 @@ class TestIntegration:
             agent_action("query")
 
         assert exc.value.failure_type == FailureType.CYCLE
+
+
+class TestLatencyDriftDecorator:
+    def test_latency_drift_detection_in_decorator(self):
+        """Test that latency drift is detected and raises error."""
+        import time
+
+        call_count = [0]
+
+        @failguard(
+            max_latency_drift=2.0,
+            max_identical_outputs=100,
+            detect_cycles=False,  # Disable cycle detection for this test
+        )
+        def variable_speed_func():
+            call_count[0] += 1
+            # First 10 calls are fast, then one slow
+            if call_count[0] > 10:
+                time.sleep(0.01)  # 10ms sleep
+            return f"result_{call_count[0]}"
+
+        # Establish fast baseline (< 1ms each)
+        for _ in range(10):
+            variable_speed_func()
+
+        # This call should trigger drift (much slower than baseline)
+        with pytest.raises(FailGuardError) as exc:
+            variable_speed_func()
+
+        assert exc.value.failure_type == FailureType.LATENCY_DRIFT
+
+    def test_latency_drift_error_message(self):
+        """Test that latency drift error message is formatted correctly."""
+        from failguard import FailureStatus
+        from failguard.core import _format_failure_message
+
+        status = FailureStatus(
+            has_failure=True,
+            has_latency_drift=True,
+            latency_ms=500.0,
+            latency_baseline_ms=100.0,
+            latency_drift_ratio=5.0,
+        )
+        msg = _format_failure_message(status)
+        assert "Latency drift" in msg
+        assert "500.0ms" in msg
+        assert "100.0ms" in msg

@@ -8,14 +8,14 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar, Union
+from typing import Any, Callable, TypeVar
 
 __all__ = [
-    "failguard",
-    "Monitor",
     "FailGuardError",
     "FailureStatus",
     "FailureType",
+    "Monitor",
+    "failguard",
 ]
 
 T = TypeVar("T")
@@ -26,10 +26,10 @@ _get_time = time.monotonic
 
 class FailureType:
     """Types of failures that can be detected."""
+
     LATENCY_DRIFT = "latency_drift"
     STUCK = "stuck"
     CYCLE = "cycle"
-    SEMANTIC_DRIFT = "semantic_drift"
 
 
 class FailGuardError(Exception):
@@ -39,6 +39,7 @@ class FailGuardError(Exception):
         failure_type: Type of failure detected.
         message: Description of the failure.
         metrics: Relevant metrics at time of failure.
+
     """
 
     __slots__ = ("failure_type", "message", "metrics")
@@ -47,8 +48,8 @@ class FailGuardError(Exception):
         self,
         failure_type: str,
         message: str,
-        metrics: Optional[dict[str, Any]] = None,
-    ):
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
         self.failure_type = failure_type
         self.message = message
         self.metrics = metrics or {}
@@ -61,6 +62,7 @@ class FailGuardError(Exception):
 @dataclass
 class FailureStatus:
     """Status report from failure detection."""
+
     has_failure: bool = False
     failure_types: list[str] = field(default_factory=list)
 
@@ -106,40 +108,54 @@ def _detect_cycle(
     return False, []
 
 
+_WARMUP_SAMPLES = 10  # Number of samples before switching to EMA
+
+
 class _FailGuardState:
     """Internal state tracking for a guarded function."""
 
-    def __init__(self, window_size: int = 100):
+    def __init__(self, window_size: int = 100) -> None:
         self.lock = threading.Lock()
-        self.call_history: deque[tuple[float, str, float]] = deque(maxlen=window_size)
+        self.call_history: deque[tuple[float, str, float]] = deque(
+            maxlen=window_size,
+        )
         self.output_sequence: deque[str] = deque(maxlen=window_size)
-        self.latency_sum: float = 0.0
-        self.latency_count: int = 0
+        # After warmup, _latency_ema_scaled holds EMA * _WARMUP_SAMPLES
+        # so that baseline = _latency_ema_scaled / _WARMUP_SAMPLES
+        self._latency_ema_scaled: float = 0.0
+        self._latency_count: int = 0
 
     @property
     def latency_baseline(self) -> float:
-        """Rolling average latency."""
-        if self.latency_count == 0:
+        """Rolling average latency in ms."""
+        if self._latency_count == 0:
             return 0.0
-        return self.latency_sum / self.latency_count
+        return self._latency_ema_scaled / self._latency_count
 
-    def record_call(self, output_hash: str, latency_ms: float, step_name: Optional[str] = None) -> None:
+    def record_call(
+        self,
+        output_hash: str,
+        latency_ms: float,
+        step_name: str | None = None,
+    ) -> None:
         """Record a function call."""
         now = _get_time()
         with self.lock:
             # Update latency baseline (exponential moving average after warmup)
-            if self.latency_count < 10:
-                self.latency_sum += latency_ms
-                self.latency_count += 1
+            if self._latency_count < _WARMUP_SAMPLES:
+                # Warmup: accumulate sum
+                self._latency_ema_scaled += latency_ms
+                self._latency_count += 1
             else:
-                # EMA with alpha=0.1
-                self.latency_sum = self.latency_sum * 0.9 + latency_ms
-                self.latency_count = max(self.latency_count, 10)
+                # After warmup: EMA with alpha=0.1, scaled by _WARMUP_SAMPLES
+                self._latency_ema_scaled = self._latency_ema_scaled * 0.9 + latency_ms
 
             self.call_history.append((now, output_hash, latency_ms))
             self.output_sequence.append(step_name or output_hash)
 
-    def check_latency_drift(self, current_ms: float, threshold: float) -> tuple[bool, float]:
+    def check_latency_drift(
+        self, current_ms: float, threshold: float
+    ) -> tuple[bool, float]:
         """Check if current latency exceeds threshold * baseline."""
         baseline = self.latency_baseline
         if baseline <= 0:
@@ -153,7 +169,19 @@ class _FailGuardState:
         max_identical: int,
         window_sec: float,
     ) -> tuple[bool, int]:
-        """Check if output is stuck (repeating identical values)."""
+        """Check if output is stuck (repeating identical values within window).
+
+        Args:
+            output_hash: Hash of the current output.
+            max_identical: Threshold for stuck detection. Use 0 to disable.
+            window_sec: Time window in seconds to consider.
+
+        Returns:
+            Tuple of (is_stuck, count_in_window).
+        """
+        # max_identical=0 disables stuck detection
+        if max_identical <= 0:
+            return False, 0
         now = _get_time()
         count = 0
         with self.lock:
@@ -162,7 +190,9 @@ class _FailGuardState:
                     count += 1
         return count >= max_identical, count
 
-    def check_cycle(self, min_length: int = 2, max_length: int = 5) -> tuple[bool, list[str]]:
+    def check_cycle(
+        self, min_length: int = 2, max_length: int = 5
+    ) -> tuple[bool, list[str]]:
         """Check for repeating patterns in output sequence."""
         with self.lock:
             return _detect_cycle(list(self.output_sequence), min_length, max_length)
@@ -172,8 +202,8 @@ class _FailGuardState:
         with self.lock:
             self.call_history.clear()
             self.output_sequence.clear()
-            self.latency_sum = 0.0
-            self.latency_count = 0
+            self._latency_ema_scaled = 0.0
+            self._latency_count = 0
 
 
 def failguard(
@@ -184,10 +214,10 @@ def failguard(
     detect_cycles: bool = True,
     cycle_min_length: int = 2,
     cycle_max_length: int = 5,
-    on_failure: Optional[Callable[[FailureStatus], Any]] = None,
+    on_failure: Callable[[FailureStatus], Any] | None = None,
     raise_on_failure: bool = True,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator to detect silent failures in AI agent functions.
+    """Detect silent failures in AI agent functions.
 
     Monitors for:
     - Latency drift: Function taking much longer than baseline
@@ -214,6 +244,7 @@ def failguard(
 
     Raises:
         FailGuardError: If a failure is detected and raise_on_failure=True.
+
     """
     state = _FailGuardState()
 
@@ -240,7 +271,9 @@ def failguard(
                 status.failure_types.append(FailureType.LATENCY_DRIFT)
 
             # Check stuck
-            is_stuck, count = state.check_stuck(output_hash, max_identical_outputs, stuck_window)
+            is_stuck, count = state.check_stuck(
+                output_hash, max_identical_outputs, stuck_window
+            )
             status.identical_count = count
             if is_stuck:
                 status.is_stuck = True
@@ -249,7 +282,9 @@ def failguard(
 
             # Check cycles
             if detect_cycles:
-                has_cycle, pattern = state.check_cycle(cycle_min_length, cycle_max_length)
+                has_cycle, pattern = state.check_cycle(
+                    cycle_min_length, cycle_max_length
+                )
                 status.has_cycle = has_cycle
                 status.cycle_pattern = pattern
                 status.cycle_length = len(pattern)
@@ -320,6 +355,7 @@ class Monitor:
             status = monitor.check(result, step_name="process")
             if status.has_failure:
                 handle_failure(status)
+
     """
 
     def __init__(
@@ -339,14 +375,14 @@ class Monitor:
         self._detect_cycles = detect_cycles
         self._cycle_min_length = cycle_min_length
         self._cycle_max_length = cycle_max_length
-        self._last_check_time: Optional[float] = None
+        self._last_check_time: float | None = None
 
     def check(
         self,
         value: Any,
         *,
-        step_name: Optional[str] = None,
-        latency_ms: Optional[float] = None,
+        step_name: str | None = None,
+        latency_ms: float | None = None,
     ) -> FailureStatus:
         """Check a value for failures.
 
@@ -358,6 +394,7 @@ class Monitor:
 
         Returns:
             FailureStatus with all detected issues.
+
         """
         now = _get_time()
 
