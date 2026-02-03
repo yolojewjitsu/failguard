@@ -247,6 +247,10 @@ def failguard(
     Raises:
         FailGuardError: If a failure is detected and raise_on_failure=True.
 
+    Note:
+        This decorator does not support async functions. For async code,
+        use the Monitor class with explicit latency_ms measurements.
+
     """
     state = _FailGuardState()
 
@@ -308,7 +312,7 @@ def failguard(
                             "latency_ms": status.latency_ms,
                             "latency_baseline_ms": status.latency_baseline_ms,
                             "identical_count": status.identical_count,
-                            "cycle_pattern": status.cycle_pattern,
+                            "cycle_pattern": list(status.cycle_pattern),  # Copy
                         },
                     )
 
