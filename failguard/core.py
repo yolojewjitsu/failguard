@@ -84,7 +84,8 @@ class FailureStatus:
 
 def _hash_output(value: Any) -> str:
     """Create a hash of the output for comparison."""
-    return hashlib.sha256(repr(value).encode()).hexdigest()[:16]
+    # Use surrogatepass to handle any malformed unicode in repr()
+    return hashlib.sha256(repr(value).encode("utf-8", errors="surrogatepass")).hexdigest()[:16]
 
 
 def _detect_cycle(
@@ -292,7 +293,7 @@ def failguard(
                     cycle_min_length, cycle_max_length
                 )
                 status.has_cycle = has_cycle
-                status.cycle_pattern = pattern
+                status.cycle_pattern = list(pattern)  # Copy to prevent mutation
                 status.cycle_length = len(pattern)
                 if has_cycle:
                     status.has_failure = True
@@ -446,7 +447,7 @@ class Monitor:
                 self._cycle_min_length, self._cycle_max_length
             )
             status.has_cycle = has_cycle
-            status.cycle_pattern = pattern
+            status.cycle_pattern = list(pattern)  # Copy to prevent mutation
             status.cycle_length = len(pattern)
             if has_cycle:
                 status.has_failure = True
