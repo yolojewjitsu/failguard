@@ -233,7 +233,8 @@ def failguard(
         cycle_max_length: Maximum cycle length to detect (default 5)
         on_failure: Optional callback when failure detected.
                     If provided, receives FailureStatus.
-                    If it returns a value, that's used instead of raising.
+                    If it returns a non-None value, that's used as the return value.
+                    If it returns None, the original result is returned.
         raise_on_failure: Whether to raise FailGuardError (default True).
                          Ignored if on_failure handles the failure.
 
@@ -367,7 +368,7 @@ class Monitor:
         detect_cycles: bool = True,
         cycle_min_length: int = 2,
         cycle_max_length: int = 5,
-    ):
+    ) -> None:
         self._state = _FailGuardState()
         self._max_latency_drift = max_latency_drift
         self._max_identical_outputs = max_identical_outputs
