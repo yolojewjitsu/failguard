@@ -55,3 +55,31 @@ class TestEdgeCases:
         monitor.check(long_output)
         status = monitor.check(long_output)
         assert status.is_stuck
+
+    def test_cycle_invalid_min_length(self):
+        """Test with cycle_min_length=0 - should disable cycle detection gracefully."""
+        monitor = Monitor(
+            detect_cycles=True,
+            cycle_min_length=0,  # Invalid: must be >= 1
+            cycle_max_length=5,
+            max_identical_outputs=100,
+        )
+        # Build up what would be a cycle with valid parameters
+        for step in ["A", "B", "A", "B"]:
+            status = monitor.check(step, step_name=step)
+            # Should never detect cycle with invalid min_length
+            assert not status.has_cycle
+
+    def test_cycle_min_greater_than_max(self):
+        """Test with cycle_min_length > cycle_max_length - should disable cycle detection."""
+        monitor = Monitor(
+            detect_cycles=True,
+            cycle_min_length=5,  # Invalid: greater than max
+            cycle_max_length=2,
+            max_identical_outputs=100,
+        )
+        # Build up what would be a cycle with valid parameters
+        for step in ["A", "B", "A", "B"]:
+            status = monitor.check(step, step_name=step)
+            # Should never detect cycle with invalid parameters
+            assert not status.has_cycle

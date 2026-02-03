@@ -95,8 +95,17 @@ def _detect_cycle(
 ) -> tuple[bool, list[str]]:
     """Detect repeating patterns in a sequence.
 
-    Returns (has_cycle, pattern).
+    Args:
+        sequence: List of items to check for cycles.
+        min_length: Minimum cycle length (must be >= 1).
+        max_length: Maximum cycle length (must be >= min_length).
+
+    Returns:
+        Tuple of (has_cycle, pattern).
     """
+    # Guard against invalid parameters
+    if min_length < 1 or max_length < min_length:
+        return False, []
     if len(sequence) < min_length * 2:
         return False, []
 
@@ -293,7 +302,7 @@ def failguard(
                     cycle_min_length, cycle_max_length
                 )
                 status.has_cycle = has_cycle
-                status.cycle_pattern = pattern  # Already a new list from slice
+                status.cycle_pattern = pattern
                 status.cycle_length = len(pattern)
                 if has_cycle:
                     status.has_failure = True
@@ -313,7 +322,7 @@ def failguard(
                             "latency_ms": status.latency_ms,
                             "latency_baseline_ms": status.latency_baseline_ms,
                             "identical_count": status.identical_count,
-                            "cycle_pattern": status.cycle_pattern,  # Already copied
+                            "cycle_pattern": status.cycle_pattern,
                         },
                     )
 
@@ -451,7 +460,7 @@ class Monitor:
                 self._cycle_min_length, self._cycle_max_length
             )
             status.has_cycle = has_cycle
-            status.cycle_pattern = pattern  # Already a new list from slice
+            status.cycle_pattern = pattern
             status.cycle_length = len(pattern)
             if has_cycle:
                 status.has_failure = True
