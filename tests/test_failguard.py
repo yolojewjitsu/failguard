@@ -314,6 +314,31 @@ class TestIntegration:
 
         assert exc.value.failure_type == FailureType.CYCLE
 
+    def test_multiple_simultaneous_failures(self):
+        """Test that multiple failure types can occur simultaneously."""
+        # Use Monitor to check status without raising
+        monitor = Monitor(
+            max_identical_outputs=2,
+            detect_cycles=True,
+            cycle_min_length=2,
+            stuck_window=60,
+        )
+
+        # Build pattern: A, B, A, B (same outputs cycling)
+        # This triggers both STUCK and CYCLE detection
+        monitor.check("same", step_name="A")
+        monitor.check("same", step_name="B")  # 2nd "same" triggers stuck
+        monitor.check("same", step_name="A")
+        status = monitor.check("same", step_name="B")  # Completes A->B->A->B cycle
+
+        # Both stuck and cycle should be detected
+        assert status.has_failure
+        assert status.is_stuck
+        assert status.has_cycle
+        assert FailureType.STUCK in status.failure_types
+        assert FailureType.CYCLE in status.failure_types
+        assert len(status.failure_types) == 2
+
 
 class TestLatencyDriftDecorator:
     def test_latency_drift_detection_in_decorator(self):
