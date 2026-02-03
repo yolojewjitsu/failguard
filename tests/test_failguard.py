@@ -77,6 +77,28 @@ class TestFailguardDecorator:
         assert len(handler_called) == 1
         assert handler_called[0].is_stuck
 
+    def test_on_failure_returns_none(self):
+        """Test on_failure handler that returns None - should return original result."""
+        @failguard(max_identical_outputs=2, on_failure=lambda status: None)
+        def func():
+            return "same"
+
+        func()
+        result = func()
+
+        # When on_failure returns None, the original result is returned
+        assert result == "same"
+
+    def test_preserves_function_metadata(self):
+        """Test that @failguard preserves function metadata."""
+        @failguard()
+        def documented_func():
+            """This is a docstring."""
+            return "value"
+
+        assert documented_func.__name__ == "documented_func"
+        assert documented_func.__doc__ == "This is a docstring."
+
     def test_raise_on_failure_false(self):
         """Test that raise_on_failure=False suppresses exceptions."""
         @failguard(max_identical_outputs=2, raise_on_failure=False)
