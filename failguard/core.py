@@ -313,7 +313,7 @@ def failguard(
                             "latency_ms": status.latency_ms,
                             "latency_baseline_ms": status.latency_baseline_ms,
                             "identical_count": status.identical_count,
-                            "cycle_pattern": list(status.cycle_pattern),  # Copy
+                            "cycle_pattern": status.cycle_pattern,  # Already copied
                         },
                     )
 
@@ -324,7 +324,11 @@ def failguard(
             state.reset()
 
         def get_status() -> FailureStatus:
-            """Get current status without making a call."""
+            """Get current status without making a call.
+
+            Returns a FailureStatus with only latency_baseline_ms populated.
+            Other fields have default values since no check is performed.
+            """
             status = FailureStatus()
             status.latency_baseline_ms = state.latency_baseline
             return status
