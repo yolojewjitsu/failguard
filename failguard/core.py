@@ -293,7 +293,7 @@ def failguard(
                     cycle_min_length, cycle_max_length
                 )
                 status.has_cycle = has_cycle
-                status.cycle_pattern = list(pattern)  # Copy to prevent mutation
+                status.cycle_pattern = pattern  # Already a new list from slice
                 status.cycle_length = len(pattern)
                 if has_cycle:
                     status.has_failure = True
@@ -451,7 +451,7 @@ class Monitor:
                 self._cycle_min_length, self._cycle_max_length
             )
             status.has_cycle = has_cycle
-            status.cycle_pattern = list(pattern)  # Copy to prevent mutation
+            status.cycle_pattern = pattern  # Already a new list from slice
             status.cycle_length = len(pattern)
             if has_cycle:
                 status.has_failure = True
