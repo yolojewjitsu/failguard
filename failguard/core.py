@@ -128,9 +128,10 @@ class _FailGuardState:
     @property
     def latency_baseline(self) -> float:
         """Rolling average latency in ms."""
-        if self._latency_count == 0:
-            return 0.0
-        return self._latency_ema_scaled / self._latency_count
+        with self.lock:
+            if self._latency_count == 0:
+                return 0.0
+            return self._latency_ema_scaled / self._latency_count
 
     def record_call(
         self,
